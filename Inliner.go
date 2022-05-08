@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
 
 type Inliner struct {
-	FS fs.FS
+	FS FS
 }
 
 type FS interface {
@@ -23,6 +25,9 @@ const (
 	mdTagInline = "markdown:inline"
 	mdTagEnd    = "markdown:end"
 )
+
+// TODO: possible enhancement is to use os new line for the files
+//       or the current file's new line character
 
 func (i Inliner) Update(name string) error {
 	file, err := i.FS.Open(name)
@@ -56,6 +61,8 @@ func (i Inliner) Update(name string) error {
 	}
 	_ = bs
 
+	os.WriteFile()
+
 	return nil
 	//io.ReadAll(file)
 	//
@@ -85,10 +92,9 @@ func (i Inliner) forEachLine(bs []byte, fn func(string) error) error {
 
 func (i Inliner) addInlines(bs []byte) ([]byte, error) {
 	output := &bytes.Buffer{}
+
 	err := i.forEachLine(bs, func(line string) error {
-		if _, err := fmt.Fprintln(output, line); err != nil {
-			return err
-		}
+		_, _ = fmt.Fprintln(output, line)
 
 		if !strings.Contains(line, mdTagInline) {
 			return nil // continue
@@ -96,6 +102,7 @@ func (i Inliner) addInlines(bs []byte) ([]byte, error) {
 
 		markdownInlineDeclaration, err := i.parseMarkdownInline(line)
 		if err != nil {
+			fmt.Print("err of parsing", err.Error())
 			return err
 		}
 
@@ -103,13 +110,14 @@ func (i Inliner) addInlines(bs []byte) ([]byte, error) {
 		if err != nil {
 			return err
 		}
+		defer file.Close()
 
-		stats, err := file.Stat()
+		content, err := io.ReadAll(file)
 		if err != nil {
 			return err
 		}
 
-		fmt.Printf("%#v", markdownInlineDeclaration)
+		_, _ = fmt.Fprintf(output, "\n\n```%s\n%s\n```\n", markdownInlineDeclaration.FencedCodeBlockType, string(content))
 
 		return nil
 	})
@@ -117,8 +125,9 @@ func (i Inliner) addInlines(bs []byte) ([]byte, error) {
 }
 
 type MarkdownInlineDeclaration struct {
-	File    string
-	Section string
+	File                string
+	FencedCodeBlockType string
+	Section             string
 }
 
 var (
@@ -149,9 +158,17 @@ func (i Inliner) parseMarkdownInline(line string) (MarkdownInlineDeclaration, er
 		return MarkdownInlineDeclaration{}, fmt.Errorf("markdown:inline syntax")
 	}
 
+	filePath := match[0][1]
+
+	const localPathPrefix = "./"
+	if strings.HasPrefix(filePath, localPathPrefix) {
+		filePath = strings.TrimPrefix(filePath, localPathPrefix)
+	}
+
 	return MarkdownInlineDeclaration{
-		File:    match[0][1],
-		Section: "",
+		File:                filePath,
+		FencedCodeBlockType: filepath.Ext(filePath),
+		Section:             "",
 	}, nil
 }
 
